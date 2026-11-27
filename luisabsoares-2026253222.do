@@ -6,25 +6,10 @@
 clear all
 set more off
 
-* Fechar qualquer log que ainda esteja aberto nesta sessao do Stata
-capture log close _all
-
-* Definir o caminho da pasta e do ficheiro Excel de origem
-global pasta "/Users/luisabsoares/Library/Mobile Documents/com~apple~CloudDocs/00-FEUC/ECONOMETRIA/trabalho_final"
-global ficheiro "$pasta/stata-database.xlsx"
-
-* Gravar o novo log na pasta do projeto, substituindo versao anterior
-log using "$pasta/meus_resultados.log", text replace
-
-* Criar um identificador para que cada execucao preserve os PDFs anteriores
-global data_exec = subinstr("`c(current_date)'", " ", "", 2)
-global hora_exec = subinstr("`c(current_time)'", ":", "", 2)
-global codigo_exec = string(floor(runiform()*1000000000), "%09.0f")
-global exec_id "${data_exec}_${hora_exec}_${codigo_exec}"
-
 * A folha contem cabecalhos na linha 1 e dados nas linhas 2 a 83.
 * A coluna DATA e um indice de 1 a 82, nao uma data de calendario.
-import excel using "$ficheiro", sheet("Mensal (2)") cellrange(A1:C83) firstrow case(lower) clear
+import excel using "/Users/luisabsoares/stata/stata-database.xlsx", ///
+sheet("Mensal (2)") cellrange(A1:C83) firstrow case(lower) clear
 
 * Conferir o import antes de transformar os dados
 describe
@@ -56,11 +41,12 @@ format infl_baixa infl_alta gap_pp %9.3f
 isid mdate
 tsset mdate, monthly
 
-* Resumo e primeiras obs para Conferir
+* Resumo e primeiras obs para Conferir, pg 05 - tabela 02
 summarize infl_baixa infl_alta gap_pp
 list mdate infl_baixa infl_alta gap_pp in 1/6
 
 * graph 1: comparar as duas taxas mensais
+* apendice A, figura 3
 twoway (line infl_baixa mdate, lcolor(navy) lwidth(medthick)) ///
        (line infl_alta mdate, lcolor(maroon) lwidth(medthick)), ///
        title("Inflação mensal por faixa de renda") ///
@@ -69,9 +55,8 @@ twoway (line infl_baixa mdate, lcolor(navy) lwidth(medthick)) ///
        xtitle("Mês") ///
        legend(order(1 "Renda muito baixa" 2 "Renda alta") rows(1)) ///
        name(g_inflacao_faixas, replace)
-graph export "$pasta/g_inflacao_faixas_${exec_id}.pdf", as(pdf) name(g_inflacao_faixas)
 
-* graph 2: gap entre as taxas em cada mes
+* graph 2: gap entre as taxas em cada mes, pg 06 - figura 01
 * Gap positivo: inflacao maior para renda muito baixa.
 * Gap negativo: inflacao maior para renda alta.
 twoway (line gap_pp mdate, lcolor(navy) lwidth(medthick)), ///
@@ -81,7 +66,6 @@ twoway (line gap_pp mdate, lcolor(navy) lwidth(medthick)), ///
        ytitle("Diferença (pontos percentuais)") ///
        xtitle("Mês") ///
        name(g_gap_inflacao, replace)
-graph export "$pasta/g_gap_inflacao_${exec_id}.pdf", as(pdf) name(g_gap_inflacao)
 
 * ============================================================================
 * Etapa 2: verificar a persistencia e testar estacionariedade do gap
@@ -94,17 +78,19 @@ summarize gap_pp, detail
 * Correlograma: autocorrelacoes, autocorrelacoes parciais e teste Q
 corrgram gap_pp, lags(12)
 ac gap_pp, lags(12) name(ac_gap, replace)
-graph export "$pasta/ac_gap_${exec_id}.pdf", as(pdf) name(ac_gap)
+* Apendice A, figura 4
 pac gap_pp, lags(12) name(pac_gap, replace)
-graph export "$pasta/pac_gap_${exec_id}.pdf", as(pdf) name(pac_gap)
+* Apendice A, figura 5
 
 * Testes ADF conforme executados na analise (sem drift): H0 = raiz unitaria.
 * Comparamos 1 e 3 defasagens como analise de sensibilidade.
+* Pg 07 - tabela 03
 dfuller gap_pp, lags(1)
 dfuller gap_pp, lags(3)
 
 * Teste Phillips-Perron: H0 = a serie tem raiz unitaria
 * A opcao lags(3) define a largura usada na correcao Newey-West.
+* Pg 07 - tabela 03
 pperron gap_pp, lags(3)
 
 * ============================================================================
@@ -114,16 +100,19 @@ pperron gap_pp, lags(3)
 * ============================================================================
 
 * Modelo de ref: o gap oscila em torno de uma media constante
+* Pg 07 - Tabela 04
 regress gap_pp if mdate >= ym(2020, 3)
 estimates store media
 estat ic
 
 * AR(1): o gap deste mes depende do gap do mes anterior
+* Pg 07 - Tabela 04
 regress gap_pp L.gap_pp if mdate >= ym(2020, 3)
 estimates store ar1
 estat ic
 
 * AR(2): acrescenta o gap de dois meses anteriores
+* Pg 07 - Tabela 04
 regress gap_pp L(1/2).gap_pp if mdate >= ym(2020, 3)
 estimates store ar2
 estat ic
@@ -147,21 +136,27 @@ estimates restore ar1
 predict resid_ar1, residuals
 corrgram resid_ar1, lags(12)
 wntestq resid_ar1, lags(12)
+* Pg 07 - Tabela 05
 
 * Inspecao grafica dos residuos AR(1)
-tsline resid_ar1, yline(0) title("Resíduos do modelo AR(1)") name(g_resid_ar1_tempo, replace)
-graph export "$pasta/resid_ar1_tempo_${exec_id}.pdf", as(pdf) name(g_resid_ar1_tempo)
-rvfplot, yline(0) title("Resíduos versus valores ajustados: AR(1)") name(g_resid_ar1_ajustados, replace)
-graph export "$pasta/resid_ar1_ajustados_${exec_id}.pdf", as(pdf) name(g_resid_ar1_ajustados)
+* Pg 08 - Figura 02
+* Apendice A - Figura 06
+tsline resid_ar1, yline(0) title("Resíduos do modelo AR(1)") ///
+       name(g_resid_ar1_tempo, replace)
+rvfplot, yline(0) title("Resíduos versus valores ajustados: AR(1)") ///
+       name(g_resid_ar1_ajustados, replace)
 
 * H0 dos testes seguintes: variancia constante / ausencia de heterocedasticidade.
 * Breusch-Pagan/Cook-Weisberg, sem exigir normalidade dos erros
+* Pg 07 - Tabela 05
 estat hettest, iid
 
 * Teste geral de White para heterocedasticidade
+* Pg 07 - Tabela 05
 estat imtest, white
 
 * ARCH-LM: verifica se a variancia depende de choques passados
+* Pg 07 - Tabela 05
 estat archlm, lags(1/4)
 
 * ============================================================================
@@ -171,12 +166,10 @@ estat archlm, lags(1/4)
 
 generate mes = month(dofm(mdate))
 label variable mes "Mes do ano"
+* Pg 07 - Tabela 04
 regress gap_pp L.gap_pp i.mes if mdate >= ym(2020, 3)
 estimates store ar1_mes
 testparm i.mes
 estat ic
 
-log close
-
-* Opcional: guardar a base preparada em formato Stata na pasta de origem
-save "$pasta/inflacao_faixas_preparada.dta", replace
+*fim
